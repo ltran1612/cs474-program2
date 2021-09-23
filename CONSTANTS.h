@@ -1,0 +1,10 @@
+#ifndef CONSTANTS_H
+#define CONSTANTS_H
+
+// STRINGS
+#define PROMPT %%
+#define COMMAND_MAX_LENGTH 200
+#define COMMAND_MAX_ARGUMENTS 100
+
+// STATUS RESULT
+#endif
