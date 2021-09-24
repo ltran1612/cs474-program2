@@ -1,3 +1,9 @@
 not exhaustive list
 test for all possible errors:
 + What to do with control C
+
+Sections are divided by pipes. 
+If I see > in a section, dump everything from stdin into it after program execution. 
+If I see multiple of >, execute the right most one first. 
+
+If I see < in a section, loading it as input first
