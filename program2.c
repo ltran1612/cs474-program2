@@ -15,11 +15,10 @@
 #include "CONSTANTS.h"
 #include "utilities.h"
 
-
 // global variables
 char str_input[COMMAND_MAX_LENGTH];
-char * argv[COMMAND_MAX_ARGUMENTS];
-int argc;
+char * tokens[COMMAND_MAX_ARGUMENTS];
+int tkc;
 char * input_stream;
 char * output_stream;
 
@@ -50,6 +49,7 @@ int parse(char *str, char *argv[]) {
     j= 0;
     // check bound
     if (j >= COMMAND_MAX_ARGUMENTS) {
+        printf("The number of arguments passed the limit\n");
         return -1;
     } // end if
 
@@ -57,8 +57,19 @@ int parse(char *str, char *argv[]) {
     point=strtok(str," ");
 
     // parse
+    int must_be_fol = 0;
     while (point != NULL) {
-        // assing the arguments into the token
+        // assessing the syntax before storing
+        if (must_be_fol) {
+            if (strcmp(point, "<") == 0 || strcmp(point, ">") == 0) {
+                printf("Syntax error: Unexpected token after %s\n", point);
+                return -1;
+            } // end if
+            must_be_fol = 0;
+        } else if (strcmp(point, "<") == 0 || strcmp(point, ">") == 0) {
+            must_be_fol = 1;
+        } // end else if
+
         argv[j]=point;
 
         // continue to split the string
@@ -69,9 +80,16 @@ int parse(char *str, char *argv[]) {
 
         // check bound
         if (point != NULL && j >= COMMAND_MAX_ARGUMENTS) {
+            printf("The number of arguments passed the limit\n");
             return -1;
         } // end if
     } // end while
+
+    // end of string, check if there is any value that needs follow up, if there is 
+    if (must_be_fol) {
+        printf("Syntax error: Unexpected token after %s\n", argv[j-1]);
+        return -1;
+    } // end if
 
     // end the string
     argv[j]=NULL;
@@ -83,80 +101,98 @@ int parse(char *str, char *argv[]) {
 /*
     Try to execute the program
 */
-int execute(int argc, char *argv[]) {
+int execute(int tkc, char *tokens[]) {
+    char * argv[COMMAND_MAX_ARGUMENTS];
+    int argc = 0;
     input_stream = NULL;
     output_stream = NULL;
+
+    int t_start = 0, t_end = tkc, t_count = t_end - t_start;
+    
+
     // get the input and output stream
     int j;
-    for (j = argc - 1; j >= 0; ++j) {
-        if (strcmp(argv[j], ">")) {
-            if (argv[j+1] == NULL) {
-                printf("Expect something after >\n");
-                return EXIT_FAILURE;
-            } // end if
-
-            output_stream = argv[j+1];
-        } else if (strcmp(argv[j], "<")) {
-            if (argv[j+1] == NULL) {
-                printf("Expect something after <\n");
-                return EXIT_FAILURE;
-            } // end if
-
-            input_stream = argv[j+1];
-        } // end else if
-    } // end for j
-    
-    // get the command to run
-    char * command = argv[0];
-
-    // check if it's valid
-    // inate functions
-    // + chdir: cd
-    // + pwd: pwd
-    // + echo: echo
-    // + exit: exit
-    if (strcmp(command, "cd") == 0) {
-        // chdir
-        printf("chdir\n");
-    } else if (strcmp(command, "pwd") == 0) {
-        // pwd
-        printf("pwd\n");
-    } else if (strcmp(command, "echo") == 0) {
-        // echo the arguments with one space afteward except the last one
-        int i;
-        for (i = 1; i < argc-1; ++i) {
-            fprintf_wrapper(argv[i]);
-            fprintf_wrapper(" ");
-        } // end for i
-
-        // echo the last argument if there is at least one argument (not counting the command)
-        if (argc > 1)
-            fprintf_wrapper(argv[argc-1]);
-
-        // new line
-        fprintf_wrapper("\n");
-    } else if (strcmp(command, "exit") == 0) {
-        if (argc > 2) {
-            printf("Exit Error: Too many arguments\n");
-            return EXIT_FAILURE;
+    for (j = t_start; j < t_end;) {
+        if (strcmp(tokens[j], ">") == 0) {
+            output_stream = tokens[j+1];
+            j = j + 2;
+        } else if (strcmp(tokens[j], "<") == 0) {
+            input_stream = tokens[j+1];
+            j = j + 2;
+        } else {
+            argv[argc++] = tokens[j];
+            j = j + 1;
         } // end if
+    } // end for j
+    argv[argc] = NULL;
+    
+    int start = 0, end = argc, count = end - start;
 
-        // find the status
-        int status = 0;
-        if (argc > 1) {
-            status = atoi(argv[1]);
-        } // end if 
+    // do thing in a child process
+    int f_id = fork();
+    if (f_id == 0) { // child process
+        // set the standard in and out
+        if (output_stream != NULL) {
+            FILE * out_stream = freopen(output_stream, "w", stdout);
+            if (out_stream == NULL) {
+                exit(EXIT_FAILURE);
+            } // end if
+        } // end if
+       
+        if (input_stream != NULL) {
+            FILE* in_stream = freopen(input_stream, "r", stdin);
+             if (input_stream == NULL) {
+                exit(EXIT_FAILURE);
+            } // end if
+        } // end if
+        
+        // get the command to run
+        char * command = argv[start];
 
-        // exit
-        printf("exiting...\n");
-        exit(status);
-    } else {
-        // others  
-        // create a child process to run the program
-        int ID = fork();  
-        if (ID == 0) {
+        // check if it's valid
+        // inate functions
+        // + chdir: cd
+        // + pwd: pwd
+        // + echo: echo
+        // + exit: exit
+        if (strcmp(command, "cd") == 0) { // cd
+            // chdir
+            printf("chdir\n");
+        } else if (strcmp(command, "pwd") == 0) { // pwd
+            // pwd
+            printf("pwd\n");
+        } else if (strcmp(command, "echo") == 0) { // echo
+            // echo the arguments with one space afteward except the last one
+            int i;
+            for (i = start+1; i < end-1; ++i) {
+                fprintf_wrapper(argv[i]);
+                fprintf_wrapper(" ");
+            } // end for i
+
+            // echo the last argument if there is at least one argument (not counting the command)
+            if (count > 1)
+                fprintf_wrapper(argv[end-1]);
+
+            // new line
+            fprintf_wrapper("\n");
+        } else if (strcmp(command, "exit") == 0) { // exit
+            if (count > 2) {
+                printf("Exit Error: Too many arguments\n");
+                return EXIT_FAILURE;
+            } // end if
+
+            // find the status
+            int status = 0;
+            if (count > 1) {
+                status = atoi(argv[1]);
+            } // end if 
+
+            // exit
+            printf("exiting...\n");
+            exit(status);
+        } else { // others 
             int status = EXIT_SUCCESS;
-            status = execv(argv[0], argv);
+            status = execv(command, argv);
             if (status == -1) {
                 switch (errno) {
                     //The argument list and the environment is larger than the system limit of ARG_MAX bytes.
@@ -219,20 +255,21 @@ int execute(int argc, char *argv[]) {
             exit(status);
         } // end if
 
+    } else { // parent process
         // get the stastus of the child
         // need to test to see if the error will actually prints out
         int status = EXIT_SUCCESS;
         pid_t c_id;
         // wait for a program to finish
         for (c_id = wait(&status);!WIFEXITED(status);c_id = wait(&status));
-        //printf("child id: %d status: %d\n", c_id, WEXITSTATUS(status));
+        printf("child id: %d status: %d\n", c_id, WEXITSTATUS(status));
 
         // return success status
         return WEXITSTATUS(status);
     } // end else
 
     // the program was executed successfully
-    return EXIT_SUCCESS;
+    exit(EXIT_SUCCESS);
 } // end run
 
 /*
@@ -240,8 +277,8 @@ int execute(int argc, char *argv[]) {
 */
 int main(void) {
     // setup
-    input_stream = stdin;
-    output_stream = stdout;
+    input_stream = NULL;
+    output_stream = NULL;
 
     // infinite loop
     while (1) {
@@ -263,19 +300,18 @@ int main(void) {
         } // end if
 
         // parse the string for the arguments
-        argc = parse(str_input, argv, &input_stream, &output_stream);
+        tkc = parse(str_input, tokens);
         // check for parse error
-        if (argc == -1) {
-            printf("The number of arguments passed the limit\n");
+        if (tkc == -1) {
             continue;
         } // end if
 
         // int i;
         // for (i = 0; i < argc; ++i) {
-        //     printf("arg1: %s\n", argv[i]);
+        //     printf("arg1: %s\n", tokens[i]);
         // } // end if
 
         // try to execute the command
-        int status = execute(argc, argv);
+        int status = execute(tkc, tokens);
     } // end while
 } // end main
