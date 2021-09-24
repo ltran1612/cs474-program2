@@ -112,6 +112,13 @@ int parse(char *str, char *argv[]) {
 char * pwd(char * path) {
     return getcwd(path, FILE_PATH_MAX_SIZE+1);
 } // end pwd
+
+/*
+    execute each pipe section
+*/
+int executeOneCommand(int t_start, t_end) {
+
+} // end executeOneCommand
 /*
     Try to execute the program
     return EXIT_SUCESS or EXIT_FAILURE or other codes
@@ -203,10 +210,10 @@ int execute() {
             } // end else
             
             // change the dir
-            status = chdir(des_path);
+            int sts = chdir(des_path);
 
             // analyze error
-            if (status == -1) {
+            if (sts == -1) {
                 switch (errno)  {
                     // Search permission is denied for one of the components of path.
                     case EACCES:
@@ -343,7 +350,6 @@ int execute() {
                 status = EXIT_FAILURE;
             } else {
                 // find the status
-                int status = 0;
                 if (count > 1) {
                     status = atoi(argv[1]);
                 } // end if 
@@ -353,6 +359,76 @@ int execute() {
                 exit(status);
             } // end else
         } else if (strcmp(command, "mkdir") == 0) { // mkdir
+            // get the path
+            char * des_path = "";
+            if (argc > 1) {
+                int dir_idx;
+                for (dir_idx = 0; dir_idx < argc-1; ++dir_idx) {
+                    des_path = argv[start + 1 + dir_idx];
+                    int sts = mkdir(des_path, S_IRWXU | S_IRGRP | S_IXGRP | S_IXOTH);
+                    // analyze error
+                    if (sts == -1) {
+                        switch(errno) {
+                            // Search permission is denied on a component of the path prefix, or write permission is denied on the parent directory of the directory to be created.
+                            case EACCES:
+                                printf("mkdir: Search permission denied\n");
+                                break;
+                            
+                            // The named file exists.
+                            case EEXIST:
+                                printf("mkdir: %s already existed\n", des_path);
+                                break;
+
+                            // A loop exists in symbolic links encountered during resolution of the path argument.
+                            case ELOOP:
+                                printf("mkdir: A loop exists in symbolic links encountered during resolution of the path argument\n");
+                                break;
+
+                            // The link count of the parent directory would exceed {LINK_MAX}.
+                            case EMLINK:
+                                printf("mkdir: \n");
+                                break;
+
+                            // The length of the path argument exceeds {PATH_MAX} or a pathname component is longer than {NAME_MAX}.
+                            // or As a result of encountering a symbolic link in resolution of the path argument, the length of the substituted pathname string exceeded {PATH_MAX}.
+                            case ENAMETOOLONG:
+                                printf("mkdir: The length of the path argument exceeds {PATH_MAX} or a pathname component is longer than {NAME_MAX}\
+                                or As a result of encountering a symbolic link in resolution of the path argument, the length of the substituted pathname string exceeded {PATH_MAX}\n");
+                                break;
+                            
+                            // A component of the path prefix specified by path does not name an existing directory or path is an empty string.
+                            case ENOENT:
+                                printf("mkdir: A component of the path prefix specified by path does not name an existing directory or path is an empty string\n");
+                                break;
+                            
+                            // The file system does not contain enough space to hold the contents of the new directory or to extend the parent directory of the new directory.
+                            case ENOSPC:
+                                printf("mkdir: The file system does not contain enough space to hold the contents of the new directory or to extend the parent directory of the new directory\n");
+                                break;
+
+                            // A component of the path prefix is not a directory.
+                            case ENOTDIR:
+                                printf("mkdir: A component of the path prefix is not a directory\n");
+                                break;
+
+                            // The parent directory resides on a read-only file system.
+                            case EROFS:
+                                printf("mkdir: The parent directory resides on a read-only file system\n");
+                                break;
+                            
+                            // unknown error
+                            default: 
+                                printf("mkdir: Unknown error\n");
+                                break;
+                        } // end switch
+                    
+                        status = EXIT_FAILURE;
+                    } // end if
+                } // end for dir_i
+            } else {
+                printf("mkdir: no arguments inputed\n");
+                status = EXIT_FAILURE;
+            } // end else
             
         } else { // others
             // others  
