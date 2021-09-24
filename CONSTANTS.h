@@ -1,5 +1,6 @@
 #ifndef CONSTANTS_H
 #define CONSTANTS_H
+#include <limits.h>
 
 // STRINGS
 #define PROMPT %%
@@ -8,9 +9,9 @@
 
 // FILE NAME
 #define FILE_NAME_MAX_SIZE 100
-#define FILE_NAME_MAX_SIZE 100
+#define FILE_PATH_MAX_SIZE PATH_MAX
 
-#define DEBUG 1
+#define DEBUG 0
 
 // EXECUTE STATUS RESULT
 #endif

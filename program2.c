@@ -12,17 +12,25 @@
 #include <unistd.h>
 #include <errno.h>
 #include <sys/wait.h>
+#include <sys/stat.h>
 #include <fcntl.h>
 #include "CONSTANTS.h"
 #include "utilities.h"
 
 // global variables
-char str_input[COMMAND_MAX_LENGTH];
+char str_input[COMMAND_MAX_LENGTH + 1];
 char * tokens[COMMAND_MAX_ARGUMENTS];
 int tkc;
+
+// input stream path
+// output stream path
 char * input_stream_path;
 char * output_stream_path;
 int stdin_cp, stdout_cp;
+// path name to be used by those who want to use the file path
+char file_path_temp[FILE_PATH_MAX_SIZE+1];
+char file_path_curr[FILE_PATH_MAX_SIZE+1];
+char file_path_base[FILE_PATH_MAX_SIZE+1];
 
 /**
  * Wrapper to use fprintf with the output stream of the shell
@@ -100,19 +108,25 @@ int parse(char *str, char *argv[]) {
     return(j);
 } // end parse
 
+
+char * pwd(char * path) {
+    return getcwd(path, FILE_PATH_MAX_SIZE+1);
+} // end pwd
 /*
     Try to execute the program
     return EXIT_SUCESS or EXIT_FAILURE or other codes
 */
-int execute(int tkc, char *tokens[]) {
+int execute() {
+    // arguments array that each arguments will use
     char * argv[COMMAND_MAX_ARGUMENTS];
     int argc = 0;
 
+    // variable to scan the tokens
     int t_start = 0, t_end = tkc, t_count = t_end - t_start;
     input_stream_path = NULL;
     output_stream_path = NULL;
 
-    // get the input and output stream
+    // get the input and output stream, choose the rightmost one
     int j;
     for (j = t_start; j < t_end;) {
         if (strcmp(tokens[j], ">") == 0) {
@@ -128,7 +142,7 @@ int execute(int tkc, char *tokens[]) {
     } // end for j
     argv[argc] = NULL;
     
-    // set the redirection
+    // set the inputredirection
     int input_fd = -2, output_fd = -2;
     if (input_stream_path != NULL) {
         // try to open the file
@@ -149,7 +163,7 @@ int execute(int tkc, char *tokens[]) {
             return EXIT_FAILURE;
         } // end if
     }  // end if
-
+    // set the output redirection
     if (output_stream_path != NULL) {
         // try to open the file
         output_fd = open(output_stream_path, O_CREAT | O_WRONLY | O_TRUNC, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
@@ -164,139 +178,276 @@ int execute(int tkc, char *tokens[]) {
             return EXIT_FAILURE;
         } // end if
     } // end if
+    
+    // if there is arguments, execute the program
+    int status = EXIT_SUCCESS;
+    if (argc > 0) {
+        int start = 0, end = argc, count = end - start;
+        // get the command to run
+        char * command = argv[start];
 
-    int start = 0, end = argc, count = end - start;
-    // get the command to run
-    char * command = argv[start];
+        // check if it's valid
+        // inate functions
+        // + chdir: cd
+        // + pwd: pwd
+        // + echo: echo
+        // + exit: exit
+        if (strcmp(command, "cd") == 0) { // cd
+            // chdir
+            char * des_path = "";
+            if (argc > 1) {
+                des_path = argv[start+1];
+            } else {
+                // set the file path
+                des_path = file_path_base;
+            } // end else
+            
+            // change the dir
+            status = chdir(des_path);
 
-    // check if it's valid
-    // inate functions
-    // + chdir: cd
-    // + pwd: pwd
-    // + echo: echo
-    // + exit: exit
-    int status = 0;
-    if (strcmp(command, "cd") == 0) { // cd
-        // chdir
-        perror("chdir\n");
-    } else if (strcmp(command, "pwd") == 0) { // pwd
-        // pwd
-        perror("pwd\n");
-    } else if (strcmp(command, "echo") == 0) { // echo
-        // echo the arguments with one space afteward except the last one
-        int i;
-        for (i = start+1; i < end-1; ++i) {
-            fprintf_wrapper(argv[i]);
-            fprintf_wrapper(" ");
-        } // end for i
-
-        // echo the last argument if there is at least one argument (not counting the command)
-        if (count > 1)
-            fprintf_wrapper(argv[end-1]);
-
-        // new line
-        fprintf_wrapper("\n");
-    } else if (strcmp(command, "exit") == 0) { // exit
-        if (count > 2) {
-            perror("Exit Error: Too many arguments\n");
-            status = EXIT_FAILURE;
-        } else {
-             // find the status
-            int status = 0;
-            if (count > 1) {
-                status = atoi(argv[1]);
-            } // end if 
-
-            // exit
-            printf("exiting...\n");
-            exit(status);
-        } // end else
-    } else { // others
-        // others  
-        // create a child process to run the program
-        int ID = fork();  
-        if (ID == 0) {
-            int status = EXIT_SUCCESS;
-            status = execv(argv[0], argv);
+            // analyze error
             if (status == -1) {
-                switch (errno) {
-                    //The argument list and the environment is larger than the system limit of ARG_MAX bytes.
-                    case E2BIG: 
-                        printf("The argument list and the environment is larger than the system limit of ARG_MAX bytes\n");
-                        break;
-                    //The calling process doesn't have permission to search a directory listed in path, or it doesn't have permission to execute path, or path's filesystem was mounted with the ST_NOEXEC flag.
+                switch (errno)  {
+                    // Search permission is denied for one of the components of path.
                     case EACCES:
-                        printf("The calling process doesn't have permission to search a directory listed in path, or it doesn't have permission to execute path, or path's filesystem was mounted with the ST_NOEXEC flag\n");
-                        break;
-                    
-                    // Either argv or the value in argv[0] is NULL. 
-                    case EINVAL:
-                        printf("Either argv or the value in argv[0] is NULL\n");
+                        printf("cd: Search permission is denied for one of the components of path\n");
                         break;
 
-                    // Too many levels of symbolic links or prefixes. 
+                    // path points outside your accessible address space
+                    case EFAULT:
+                        printf("cd: path points outside your accessible address space\n");
+                        break;
+                    
+                    // An I/O error occurred
+                    case EIO:
+                        printf("cd: An I/O error occurred\n");
+                        break;
+                    
+                    // Too many symbolic links were encountered in resolving path
                     case ELOOP:
-                        printf("Too many levels of symbolic links or prefixes\n");
+                        printf("cd: Too many symbolic links were encountered in resolving path\n");
                         break;
 
-                    //  Insufficient resources available to load the new executable image or to remap file descriptors.
-                    case EMFILE:
-                        printf("Insufficient resources available to load the new executable image or to remap file descriptors\n");
+                    // path is too long
+                    case ENAMETOOLONG: 
+                        printf("cd: path is too long\n");
                         break;
-
-                    // The length of path or an element of the PATH environment variable exceeds PATH_MAX.
-                    case ENAMETOOLONG:
-                        printf("The length of path or an element of the PATH environment variable exceeds PATH_MAX\n");
-                        break;
-
                     
-                    // One or more components of the pathname don't exist, or the path argument points to an empty string.
-                    case ENOENT:
-                        printf("One or more components of the pathname don't exist, or the path argument points to an empty string\n");
+                    // The directory specified in path does not exist
+                    case ENOENT: 
+                        printf("cd: The directory specified in path does not exist\n");
                         break;
 
-                    // The new process's image file has the correct access permissions, but isn't in the proper format. 
-                    case ENOEXEC:
-                        printf("The new process's image file has the correct access permissions, but isn't in the proper format\n");
-                        break;
-                    // There's insufficient memory available to create the new process.
+                    // Insufficient kernel memory was available.
                     case ENOMEM:
-                        printf("There's insufficient memory available to create the new process\n");
+                        printf("cd: Insufficient kernel memory was available\n");
                         break;
-
-                    // A component of path isn't a directory.
+                    
+                    // A component of path is not a directory
                     case ENOTDIR:
-                        printf("A component of path isn't a directory\n");
+                        printf("cd: A component of path is not a directory\n");
                         break;
 
-                    // The text file that you're trying to execute is busy (e.g. it might be open for writing). 
-                    case ETXTBSY:
-                        printf("The text file that you're trying to execute is busy (e.g. it might be open for writing)\n");
+                    // unknown error
+                    default:
+                        printf("cd: Unknown error\n");
                         break;
                 } // end switch
+
+                status = EXIT_FAILURE;
+            } else { // change dir successfully
+                // update the curernt dir string
+                char * temp = pwd(file_path_temp);
+                if (temp == NULL) {
+                    switch (errno) {
+                        // The size argument is 0.
+                        case EINVAL:
+                            printf("Failed to get current dir string: The size argument is 0\n");
+                            break;
+                        
+                        // The size argument is greater than 0, but is smaller than the length of the pathname +1.
+                        case ERANGE:
+                            printf("Failed to get current dir string: The size argument is greater than 0, but is smaller than the length of the pathname +1\n");
+                            break;
+
+                        // Read or search permission was denied for a component of the pathname.
+                        case EACCES:
+                            printf("Failed to get current dir string: Read or search permission was denied for a component of the pathname\n");
+                            break;
+
+                        // Insufficient storage space is available.
+                        case ENOMEM:
+                            printf("Failed to get current dir string: Insufficient storage space is available\n");
+                            break;
+
+                        default: 
+                            printf("Failed to get current dir string: Unknown error\n");
+                            break;
+                    } // end switch
+                    exit(EXIT_FAILURE);
+                } // end if
+                // assign to the current directory
+                strcpy(file_path_curr, file_path_temp);
+            } // end else
+            
+        } else if (strcmp(command, "pwd") == 0) { // pwd
+            // pwd
+            if (pwd(file_path_temp) == NULL) {
+                switch (errno) {
+                    // The size argument is 0.
+                    case EINVAL:
+                        printf("dev error: The size argument is 0\n");
+                        break;
+                    
+                    // The size argument is greater than 0, but is smaller than the length of the pathname +1.
+                    case ERANGE:
+                        printf("dev error: The size argument is greater than 0, but is smaller than the length of the pathname +1\n");
+                        break;
+
+                    // Read or search permission was denied for a component of the pathname.
+                    case EACCES:
+                        printf("pwd: Read or search permission was denied for a component of the pathname\n");
+                        break;
+
+                    // Insufficient storage space is available.
+                    case ENOMEM:
+                        printf("pwd: Insufficient storage space is available\n");
+                        break;
+
+                    default: 
+                        printf("pwd: Unknown error\n");
+                        break;
+                } // end switch
+                status = EXIT_FAILURE;
+            } else {
+                fprintf_wrapper(file_path_temp);
+                fprintf_wrapper("\n");
+            } // end if
+        } else if (strcmp(command, "echo") == 0) { // echo
+            // echo the arguments with one space afteward except the last one
+            int i;
+            for (i = start+1; i < end-1; ++i) {
+                fprintf_wrapper(argv[i]);
+                fprintf_wrapper(" ");
+            } // end for i
+
+            // echo the last argument if there is at least one argument (not counting the command)
+            if (count > 1)
+                fprintf_wrapper(argv[end-1]);
+
+            // new line
+            fprintf_wrapper("\n");
+        } else if (strcmp(command, "exit") == 0) { // exit
+            if (count > 2) {
+                perror("Exit Error: Too many arguments\n");
+                status = EXIT_FAILURE;
+            } else {
+                // find the status
+                int status = 0;
+                if (count > 1) {
+                    status = atoi(argv[1]);
+                } // end if 
+
+                // exit
+                printf("exiting...\n");
+                exit(status);
+            } // end else
+        } else if (strcmp(command, "mkdir") == 0) { // mkdir
+            
+        } else { // others
+            // others  
+            // create a child process to run the program
+            int ID = fork();  
+            if (ID == 0) {
+                int status = EXIT_SUCCESS;
+                status = execv(argv[0], argv);
+                if (status == -1) {
+                    switch (errno) {
+                        //The argument list and the environment is larger than the system limit of ARG_MAX bytes.
+                        case E2BIG: 
+                            printf("The argument list and the environment is larger than the system limit of ARG_MAX bytes\n");
+                            break;
+                        //The calling process doesn't have permission to search a directory listed in path, or it doesn't have permission to execute path, or path's filesystem was mounted with the ST_NOEXEC flag.
+                        case EACCES:
+                            printf("The calling process doesn't have permission to search a directory listed in path, or it doesn't have permission to execute path, or path's filesystem was mounted with the ST_NOEXEC flag\n");
+                            break;
+                        
+                        // Either argv or the value in argv[0] is NULL. 
+                        case EINVAL:
+                            printf("Either argv or the value in argv[0] is NULL\n");
+                            break;
+
+                        // Too many levels of symbolic links or prefixes. 
+                        case ELOOP:
+                            printf("Too many levels of symbolic links or prefixes\n");
+                            break;
+
+                        //  Insufficient resources available to load the new executable image or to remap file descriptors.
+                        case EMFILE:
+                            printf("Insufficient resources available to load the new executable image or to remap file descriptors\n");
+                            break;
+
+                        // The length of path or an element of the PATH environment variable exceeds PATH_MAX.
+                        case ENAMETOOLONG:
+                            printf("The length of path or an element of the PATH environment variable exceeds PATH_MAX\n");
+                            break;
+
+                        // One or more components of the pathname don't exist, or the path argument points to an empty string.
+                        case ENOENT:
+                            printf("One or more components of the pathname don't exist, or the path argument points to an empty string\n");
+                            break;
+
+                        // The new process's image file has the correct access permissions, but isn't in the proper format. 
+                        case ENOEXEC:
+                            printf("The new process's image file has the correct access permissions, but isn't in the proper format\n");
+                            break;
+                        // There's insufficient memory available to create the new process.
+                        case ENOMEM:
+                            printf("There's insufficient memory available to create the new process\n");
+                            break;
+
+                        // A component of path isn't a directory.
+                        case ENOTDIR:
+                            printf("A component of path isn't a directory\n");
+                            break;
+
+                        // The text file that you're trying to execute is busy (e.g. it might be open for writing). 
+                        case ETXTBSY:
+                            printf("The text file that you're trying to execute is busy (e.g. it might be open for writing)\n");
+                            break;
+                        
+                        default:
+                            printf("Unknown error\n");
+                            break;
+                    } // end switch
+
+                    // set status to failure
+                    status = EXIT_FAILURE;
+                } // end if
+
+                if (DEBUG)
+                    perror("Exiting from child\n");
+                // exit from child process with this status
+                exit(status);
             } // end if
 
+            // get the status of the child
             if (DEBUG)
-                perror("Exiting from child\n");
-            // exit from child process with this status
-            exit(status);
-        } // end if
-
-        // get the status of the child
-        perror("waiting for the child process\n");
-        // need to test to see if the error will actually prints out
-        int status = EXIT_SUCCESS;
-        pid_t c_id;
-        // wait for a program to finish
-        for (c_id = wait(&status);!WIFEXITED(status);c_id = wait(&status));
-        //perror("child id: %d status: %d\n", c_id, WEXITSTATUS(status));
-        if (DEBUG)
-            perror("waiting for the child process\n");
-            
-        // return success status
-        status = WEXITSTATUS(status);
-    } // end else
-
+                perror("waiting for the child process\n");
+            // need to test to see if the error will actually prints out
+            int status = EXIT_SUCCESS;
+            pid_t c_id;
+            // wait for a program to finish
+            for (c_id = wait(&status);!WIFEXITED(status);c_id = wait(&status));
+            //perror("child id: %d status: %d\n", c_id, WEXITSTATUS(status));
+            if (DEBUG)
+                perror("the child process ended\n");
+                
+            // return success status
+            status = WEXITSTATUS(status);
+        } // end else
+    } // end if
+    
     // redirect back to the original
     if (input_fd != -2) {
         if (close(input_fd) == -1) {
@@ -316,7 +467,6 @@ int execute(int tkc, char *tokens[]) {
         } // end else
         
     }  // end if
-
     // redirect back the to the original
     if (output_fd != -2) {
         if (close(output_fd) == -1) {
@@ -350,17 +500,51 @@ int main(void) {
     input_stream_path = NULL;
     output_stream_path = NULL;
 
+    // save the initial stdin and stdout files
     stdin_cp = dup(STDIN_FILENO);
     stdout_cp = dup(STDOUT_FILENO);
+
+    // get the base dir
+    char * temp = pwd(file_path_base);
+    if (temp == NULL) {
+        switch (errno) {
+            // The size argument is 0.
+            case EINVAL:
+                printf("Failed to get current dir for setup: The size argument is 0\n");
+                break;
+            
+            // The size argument is greater than 0, but is smaller than the length of the pathname +1.
+            case ERANGE:
+                printf("Failed to get current dir for setup: The size argument is greater than 0, but is smaller than the length of the pathname +1\n");
+                break;
+
+            // Read or search permission was denied for a component of the pathname.
+            case EACCES:
+                printf("Failed to get current dir for setup: Read or search permission was denied for a component of the pathname\n");
+                break;
+
+            // Insufficient storage space is available.
+            case ENOMEM:
+                printf("Failed to get current dir for setup: Insufficient storage space is available\n");
+                break;
+
+            default: 
+                printf("Failed to get current dir for setup: Unknown error\n");
+                break;
+        } // end switch
+        exit(EXIT_FAILURE);
+    } // end if
+    // assign to the current directory
+    strcpy(file_path_curr, file_path_base);
 
     // infinite loop
     while (1) {
         // prompt to enter command
-        printf("%% ");
+        printf("%s%% ", file_path_curr);
         fflush(stdout);
         
         // read in command
-        if (fgets(str_input, COMMAND_MAX_LENGTH, stdin) == NULL) {
+        if (fgets(str_input, COMMAND_MAX_LENGTH+1, stdin) == NULL) {
             perror("Error: Cannot read the command\n");
             continue;
         } // end if
@@ -385,6 +569,6 @@ int main(void) {
         // } // end if
 
         // try to execute the command
-        int status = execute(tkc, tokens);
+        int status = execute();
     } // end while
 } // end main
