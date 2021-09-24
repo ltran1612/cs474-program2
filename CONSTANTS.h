@@ -10,5 +10,7 @@
 #define FILE_NAME_MAX_SIZE 100
 #define FILE_NAME_MAX_SIZE 100
 
+#define DEBUG 1
+
 // EXECUTE STATUS RESULT
 #endif

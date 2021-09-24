@@ -12,6 +12,7 @@
 #include <unistd.h>
 #include <errno.h>
 #include <sys/wait.h>
+#include <fcntl.h>
 #include "CONSTANTS.h"
 #include "utilities.h"
 
@@ -19,8 +20,9 @@
 char str_input[COMMAND_MAX_LENGTH];
 char * tokens[COMMAND_MAX_ARGUMENTS];
 int tkc;
-char * input_stream;
-char * output_stream;
+char * input_stream_path;
+char * output_stream_path;
+int stdin_cp, stdout_cp;
 
 /**
  * Wrapper to use fprintf with the output stream of the shell
@@ -100,24 +102,24 @@ int parse(char *str, char *argv[]) {
 
 /*
     Try to execute the program
+    return EXIT_SUCESS or EXIT_FAILURE or other codes
 */
 int execute(int tkc, char *tokens[]) {
     char * argv[COMMAND_MAX_ARGUMENTS];
     int argc = 0;
-    input_stream = NULL;
-    output_stream = NULL;
 
     int t_start = 0, t_end = tkc, t_count = t_end - t_start;
-    
+    input_stream_path = NULL;
+    output_stream_path = NULL;
 
     // get the input and output stream
     int j;
     for (j = t_start; j < t_end;) {
         if (strcmp(tokens[j], ">") == 0) {
-            output_stream = tokens[j+1];
+            output_stream_path = tokens[j+1];
             j = j + 2;
         } else if (strcmp(tokens[j], "<") == 0) {
-            input_stream = tokens[j+1];
+            input_stream_path = tokens[j+1];
             j = j + 2;
         } else {
             argv[argc++] = tokens[j];
@@ -126,62 +128,80 @@ int execute(int tkc, char *tokens[]) {
     } // end for j
     argv[argc] = NULL;
     
-    int start = 0, end = argc, count = end - start;
-
-    // do thing in a child process
-    int f_id = fork();
-    if (f_id == 0) { // child process
-        // set the standard in and out
-        if (output_stream != NULL) {
-            FILE * out_stream = freopen(output_stream, "w", stdout);
-            if (out_stream == NULL) {
-                exit(EXIT_FAILURE);
-            } // end if
-        } // end if
-       
-        if (input_stream != NULL) {
-            FILE* in_stream = freopen(input_stream, "r", stdin);
-             if (input_stream == NULL) {
-                exit(EXIT_FAILURE);
-            } // end if
-        } // end if
-        
-        // get the command to run
-        char * command = argv[start];
-
-        // check if it's valid
-        // inate functions
-        // + chdir: cd
-        // + pwd: pwd
-        // + echo: echo
-        // + exit: exit
-        if (strcmp(command, "cd") == 0) { // cd
-            // chdir
-            printf("chdir\n");
-        } else if (strcmp(command, "pwd") == 0) { // pwd
-            // pwd
-            printf("pwd\n");
-        } else if (strcmp(command, "echo") == 0) { // echo
-            // echo the arguments with one space afteward except the last one
-            int i;
-            for (i = start+1; i < end-1; ++i) {
-                fprintf_wrapper(argv[i]);
-                fprintf_wrapper(" ");
-            } // end for i
-
-            // echo the last argument if there is at least one argument (not counting the command)
-            if (count > 1)
-                fprintf_wrapper(argv[end-1]);
-
-            // new line
-            fprintf_wrapper("\n");
-        } else if (strcmp(command, "exit") == 0) { // exit
-            if (count > 2) {
-                printf("Exit Error: Too many arguments\n");
+    // set the redirection
+    int input_fd = -2, output_fd = -2;
+    if (input_stream_path != NULL) {
+        // try to open the file
+        input_fd = open(input_stream_path, O_RDONLY);
+        if (input_fd == -1) {
+            if (errno == ENOENT) {
+                printf("The redirect input file does not exist\n");
                 return EXIT_FAILURE;
-            } // end if
+            } else {
+                // unhandle error, just report it
+                exit(errno);
+            } // end else
+        } // end if
 
-            // find the status
+        // redirect stdin to the file
+        if (dup2(input_fd, STDIN_FILENO) == -1) {
+            printf("Something is wrong when open the redirection input stream\n");
+            return EXIT_FAILURE;
+        } // end if
+    }  // end if
+
+    if (output_stream_path != NULL) {
+        // try to open the file
+        output_fd = open(output_stream_path, O_CREAT | O_WRONLY | O_TRUNC, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+        if (output_fd == -1) {
+            // unhandled error
+            exit(errno);
+        } // end if
+
+        // redirect stdout to the file
+        if (dup2(output_fd, STDOUT_FILENO) == -1) {
+            perror("Something is wrong when open the redirection input stream\n");
+            return EXIT_FAILURE;
+        } // end if
+    } // end if
+
+    int start = 0, end = argc, count = end - start;
+    // get the command to run
+    char * command = argv[start];
+
+    // check if it's valid
+    // inate functions
+    // + chdir: cd
+    // + pwd: pwd
+    // + echo: echo
+    // + exit: exit
+    int status = 0;
+    if (strcmp(command, "cd") == 0) { // cd
+        // chdir
+        perror("chdir\n");
+    } else if (strcmp(command, "pwd") == 0) { // pwd
+        // pwd
+        perror("pwd\n");
+    } else if (strcmp(command, "echo") == 0) { // echo
+        // echo the arguments with one space afteward except the last one
+        int i;
+        for (i = start+1; i < end-1; ++i) {
+            fprintf_wrapper(argv[i]);
+            fprintf_wrapper(" ");
+        } // end for i
+
+        // echo the last argument if there is at least one argument (not counting the command)
+        if (count > 1)
+            fprintf_wrapper(argv[end-1]);
+
+        // new line
+        fprintf_wrapper("\n");
+    } else if (strcmp(command, "exit") == 0) { // exit
+        if (count > 2) {
+            perror("Exit Error: Too many arguments\n");
+            status = EXIT_FAILURE;
+        } else {
+             // find the status
             int status = 0;
             if (count > 1) {
                 status = atoi(argv[1]);
@@ -190,9 +210,14 @@ int execute(int tkc, char *tokens[]) {
             // exit
             printf("exiting...\n");
             exit(status);
-        } else { // others 
+        } // end else
+    } else { // others
+        // others  
+        // create a child process to run the program
+        int ID = fork();  
+        if (ID == 0) {
             int status = EXIT_SUCCESS;
-            status = execv(command, argv);
+            status = execv(argv[0], argv);
             if (status == -1) {
                 switch (errno) {
                     //The argument list and the environment is larger than the system limit of ARG_MAX bytes.
@@ -251,25 +276,70 @@ int execute(int tkc, char *tokens[]) {
                 } // end switch
             } // end if
 
+            if (DEBUG)
+                perror("Exiting from child\n");
             // exit from child process with this status
             exit(status);
         } // end if
 
-    } else { // parent process
-        // get the stastus of the child
+        // get the status of the child
+        perror("waiting for the child process\n");
         // need to test to see if the error will actually prints out
         int status = EXIT_SUCCESS;
         pid_t c_id;
         // wait for a program to finish
         for (c_id = wait(&status);!WIFEXITED(status);c_id = wait(&status));
-        printf("child id: %d status: %d\n", c_id, WEXITSTATUS(status));
-
+        //perror("child id: %d status: %d\n", c_id, WEXITSTATUS(status));
+        if (DEBUG)
+            perror("waiting for the child process\n");
+            
         // return success status
-        return WEXITSTATUS(status);
+        status = WEXITSTATUS(status);
     } // end else
 
+    // redirect back to the original
+    if (input_fd != -2) {
+        if (close(input_fd) == -1) {
+            perror("Cannot close the redirected stream\n");
+            // ignore the error
+            return -1;
+        } else {
+            // redirect to the original standard in
+            if (dup2(stdin_cp, STDIN_FILENO) == -1) {
+                perror("Something is wrong when redirecting the stdout back to the original\n");
+                exit(EXIT_FAILURE);
+            } // end if
+            if (DEBUG) 
+                perror("reset parent input successfully\n");
+            if (DEBUG) 
+                perror("close input parent successfully\n");
+        } // end else
+        
+    }  // end if
+
+    // redirect back the to the original
+    if (output_fd != -2) {
+        if (close(output_fd) == -1) {
+            perror("Cannot close the redirected output stream\n");
+            // ignore the error
+            return -1;
+        } else {
+            // redirect to the standard out
+            if (dup2(stdout_cp, STDOUT_FILENO) == -1) {
+                perror("Something is wrong when redirecting the stdin back to the original\n");
+                exit(EXIT_FAILURE);
+            } // end if
+
+            if (DEBUG) 
+                perror("reset parent output successfully\n");
+            if (DEBUG) 
+                perror("close output parent successfully\n");
+        } // end else 
+        
+    } // end if
+
     // the program was executed successfully
-    exit(EXIT_SUCCESS);
+    return status;
 } // end run
 
 /*
@@ -277,8 +347,11 @@ int execute(int tkc, char *tokens[]) {
 */
 int main(void) {
     // setup
-    input_stream = NULL;
-    output_stream = NULL;
+    input_stream_path = NULL;
+    output_stream_path = NULL;
+
+    stdin_cp = dup(STDIN_FILENO);
+    stdout_cp = dup(STDOUT_FILENO);
 
     // infinite loop
     while (1) {
@@ -288,14 +361,14 @@ int main(void) {
         
         // read in command
         if (fgets(str_input, COMMAND_MAX_LENGTH, stdin) == NULL) {
-            printf("Error: Cannot read the command\n");
+            perror("Error: Cannot read the command\n");
             continue;
         } // end if
 
         // trim the string
         int length = trim(str_input);
         if (length == 0) {
-            //printf("Empty command\n");
+            //perror("Empty command\n");
             continue;
         } // end if
 
@@ -308,7 +381,7 @@ int main(void) {
 
         // int i;
         // for (i = 0; i < argc; ++i) {
-        //     printf("arg1: %s\n", tokens[i]);
+        //     perror("arg1: %s\n", tokens[i]);
         // } // end if
 
         // try to execute the command
