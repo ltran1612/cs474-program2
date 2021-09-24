@@ -20,21 +20,21 @@
 char str_input[COMMAND_MAX_LENGTH];
 char * argv[COMMAND_MAX_ARGUMENTS];
 int argc;
-FILE * input_stream;
-FILE * output_stream;
+char * input_stream;
+char * output_stream;
 
 /**
  * Wrapper to use fprintf with the output stream of the shell
  */
 int fprintf_wrapper(const char * s) {
-    return fprintf(output_stream, "%s", s);
+    return fprintf(stdout, "%s", s);
 } // end if
 
 /**
  * Wrapper to use fgets with the input stream of the shell
  */
 char * fgets_wrapper(char * buffer, int max_length) {
-    return fgets(buffer, max_length, input_stream);
+    return fgets(buffer, max_length, stdin);
 } // end input
 
 /*
@@ -43,7 +43,7 @@ char * fgets_wrapper(char * buffer, int max_length) {
 
     Return: Return the number of arguments scanned, -1 in error
 */
-int parse(char *str, char *argv[], FILE ** input_stream, FILE ** output_stream) {  
+int parse(char *str, char *argv[]) {  
     int i,j;
     char *point;
 
@@ -84,6 +84,28 @@ int parse(char *str, char *argv[], FILE ** input_stream, FILE ** output_stream) 
     Try to execute the program
 */
 int execute(int argc, char *argv[]) {
+    input_stream = NULL;
+    output_stream = NULL;
+    // get the input and output stream
+    int j;
+    for (j = argc - 1; j >= 0; ++j) {
+        if (strcmp(argv[j], ">")) {
+            if (argv[j+1] == NULL) {
+                printf("Expect something after >\n");
+                return EXIT_FAILURE;
+            } // end if
+
+            output_stream = argv[j+1];
+        } else if (strcmp(argv[j], "<")) {
+            if (argv[j+1] == NULL) {
+                printf("Expect something after <\n");
+                return EXIT_FAILURE;
+            } // end if
+
+            input_stream = argv[j+1];
+        } // end else if
+    } // end for j
+    
     // get the command to run
     char * command = argv[0];
 
