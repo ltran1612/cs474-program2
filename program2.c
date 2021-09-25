@@ -19,7 +19,7 @@
 
 // global variables
 char str_input[COMMAND_MAX_LENGTH + 1];
-char * tokens[COMMAND_MAX_ARGUMENTS];
+char * tokens[COMMAND_MAX_ARGUMENTS + 1];
 int tkc;
 
 // input stream path
@@ -114,25 +114,19 @@ char * pwd(char * path) {
 } // end pwd
 
 /*
-    execute each pipe section
+    execute one command section
 */
-int executeOneCommand(int t_start, t_end) {
-
-} // end executeOneCommand
-/*
-    Try to execute the program
-    return EXIT_SUCESS or EXIT_FAILURE or other codes
-*/
-int execute() {
+int executeOneCommand(int t_start, int t_end) { 
     // arguments array that each arguments will use
     char * argv[COMMAND_MAX_ARGUMENTS];
     int argc = 0;
 
     // variable to scan the tokens
-    int t_start = 0, t_end = tkc, t_count = t_end - t_start;
+    int t_count = t_end - t_start;
     input_stream_path = NULL;
     output_stream_path = NULL;
 
+    
     // get the input and output stream, choose the rightmost one
     int j;
     for (j = t_start; j < t_end;) {
@@ -149,6 +143,13 @@ int execute() {
     } // end for j
     argv[argc] = NULL;
     
+    // if (t_start != 0) {
+    //     char c;
+    //     scanf("%c", &c);
+    //     fprintf(stderr, "-- %c --", c);
+    // } // end if
+    
+
     // set the inputredirection
     int input_fd = -2, output_fd = -2;
     if (input_stream_path != NULL) {
@@ -181,7 +182,7 @@ int execute() {
 
         // redirect stdout to the file
         if (dup2(output_fd, STDOUT_FILENO) == -1) {
-            perror("Something is wrong when open the redirection input stream\n");
+            perror("Something is wrong when open the redirection output stream\n");
             return EXIT_FAILURE;
         } // end if
     } // end if
@@ -503,6 +504,30 @@ int execute() {
 
                 if (DEBUG)
                     perror("Exiting from child\n");
+
+                // release resources. 
+                if (input_fd != -2) {
+                    if (close(input_fd) == -1) {
+                        perror("Cannot close the redirected stream\n");
+                        // ignore the error
+                        exit(EXIT_FAILURE);
+                    } else {
+                        if (DEBUG) 
+                            perror("close input parent successfully\n");
+                    } // end else
+                }  // end if
+                // release resources
+                if (output_fd != -2) {
+                    if (close(output_fd) == -1) {
+                        perror("Cannot close the redirected output stream\n");
+                        // ignore the error
+                        exit(EXIT_FAILURE);
+                    } else {
+                        if (DEBUG) 
+                            perror("close output parent successfully\n");
+                    } // end else 
+                } // end if
+
                 // exit from child process with this status
                 exit(status);
             } // end if
@@ -566,13 +591,113 @@ int execute() {
 
     // the program was executed successfully
     return status;
-} // end run
+} // end executeOneCommand
+
+/*
+    execute the command line
+    return EXIT_SUCESS or EXIT_FAILURE or other codes
+*/
+int execute() {
+    int end, start = 0;
+
+    // file descriptor
+    int pipe_fd[2];
+    pipe_fd[0] = -1;
+    pipe_fd[1] = -1;
+
+    // boolean values
+    int hasPipeAfter = 0;
+    int hasPipeBefore = 0;
+    for (end = 0; end <= tkc; ++end) {
+        hasPipeAfter = (tokens[end] != NULL) ? (strcmp(tokens[end], "|") == 0) : 0;
+        if (end == tkc || hasPipeAfter) {
+            // set the pipe and stdin and stdout
+            if (hasPipeAfter) {
+                if (DEBUG) 
+                    perror("Setting pipe\n");
+                
+                // create the pipe if it has not existed
+                if (pipe_fd[0] == -1 && pipe_fd[1] == -1 && pipe(pipe_fd) == -1) {
+                    perror("Cannot create pipe to connect two commands\n");
+                    return EXIT_FAILURE;
+                } // end if
+
+                // replace the pipe as stdin/stdout
+                // set the output redirection
+                if (dup2(pipe_fd[1], STDOUT_FILENO) == -1) {
+                    perror("Something is wrong when open the redirection output stream\n");
+                    return EXIT_FAILURE;
+                } // end if
+            } // end hasPipe
+            
+            if (hasPipeBefore) {
+                // set the input redirection
+                if (dup2(pipe_fd[0], STDIN_FILENO) == -1) {
+                    perror("Something is wrong when open the redirection input stream\n");
+                    return EXIT_FAILURE;
+                }  // end if
+
+                if (DEBUG)
+                    perror("set input pipe");
+            } // end if
+            
+            
+            // set this so that they can pass to the argument easily
+            int status = executeOneCommand(start, end);
+
+            if (hasPipeBefore) {
+                // reset the pipe stdout
+                if (dup2(stdin_cp, STDIN_FILENO) == -1) {
+                    perror("Something is wrong when setting the input stream to original\n");
+                    return EXIT_FAILURE;
+                } // end if
+                
+                // close the pipe
+                if (close(pipe_fd[0]) == -1) {
+                    perror("Cannot close the input pipe\n");
+                    // ignore the error
+                    return (EXIT_FAILURE);
+                } // end if
+
+                hasPipeBefore = 0;
+            } // end if
+            
+            if (hasPipeAfter) {
+                // reset the pipe stdout
+                if (dup2(stdout_cp, STDOUT_FILENO) == -1) {
+                    perror("Something is wrong when setting the output stream to original\n");
+                    return EXIT_FAILURE;
+                } // end if
+
+                // close the pipe
+                if (close(pipe_fd[1]) == -1) {
+                    perror("Cannot close the output pipe\n");
+                    // ignore the error
+                    return (EXIT_FAILURE);
+                } // end if
+
+                pipe_fd[1] == -1;
+
+                if (DEBUG) 
+                    perror("released output pipe");
+                
+                hasPipeBefore = 1;
+                hasPipeAfter = 0;
+            } // end 
+
+            start = end + 1;
+        } // end if
+    } // end for end
+
+    return EXIT_SUCCESS;
+} // end execute
 
 /*
     Main program to start the shell
 */
 int main(void) {
     // setup
+    // no input stream path at the start.
     input_stream_path = NULL;
     output_stream_path = NULL;
 
