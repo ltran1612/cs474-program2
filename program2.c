@@ -598,12 +598,34 @@ int executeOneCommand(int t_start, int t_end) {
     return EXIT_SUCESS or EXIT_FAILURE or other codes
 */
 int execute() {
+    int status = EXIT_SUCCESS;
     int end, start = 0;
 
-    // file descriptor
+    // file descriptor - associate with 0
     int pipe_fd[2];
     pipe_fd[0] = -1;
     pipe_fd[1] = -1;
+    // extra pipe - associate with 1
+    int e_pipe_fd[2];
+    e_pipe_fd[0] = -1;
+    e_pipe_fd[1] = -1;
+
+    // create the pipe if it has not existed
+    if (pipe(pipe_fd) == -1) {
+        perror("Cannot create pipe to connect two commands\n");
+        return EXIT_FAILURE;
+    } else if (pipe(e_pipe_fd) == -1) {
+        perror("Cannot create extra pipe to connect two commands\n");
+        return EXIT_FAILURE;
+    } // end else if
+
+    // 0 means pipe_fd is the output, while the other one is the input
+    // 1 means e_pipe_fd is the output, while the other one is the input
+    // when ever output closes, the turn swaps
+    int turn = 0;
+    // output pipe fd
+    int output_pipe_fd = pipe_fd[1];
+    int input_pipe_fd = e_pipe_fd[0];
 
     // boolean values
     int hasPipeAfter = 0;
@@ -616,25 +638,21 @@ int execute() {
                 if (DEBUG) 
                     perror("Setting pipe\n");
                 
-                // create the pipe if it has not existed
-                if (pipe_fd[0] == -1 && pipe_fd[1] == -1 && pipe(pipe_fd) == -1) {
-                    perror("Cannot create pipe to connect two commands\n");
-                    return EXIT_FAILURE;
-                } // end if
-
-                // replace the pipe as stdin/stdout
+                // replace the pipe as stdout
                 // set the output redirection
-                if (dup2(pipe_fd[1], STDOUT_FILENO) == -1) {
+                if (dup2(output_pipe_fd, STDOUT_FILENO) == -1) {
                     perror("Something is wrong when open the redirection output stream\n");
-                    return EXIT_FAILURE;
+                    status = EXIT_FAILURE;
+                    break;
                 } // end if
             } // end hasPipe
             
             if (hasPipeBefore) {
                 // set the input redirection
-                if (dup2(pipe_fd[0], STDIN_FILENO) == -1) {
+                if (dup2(input_pipe_fd, STDIN_FILENO) == -1) {
                     perror("Something is wrong when open the redirection input stream\n");
-                    return EXIT_FAILURE;
+                    status = EXIT_FAILURE;
+                    break;
                 }  // end if
 
                 if (DEBUG)
@@ -649,14 +667,16 @@ int execute() {
                 // reset the pipe stdout
                 if (dup2(stdin_cp, STDIN_FILENO) == -1) {
                     perror("Something is wrong when setting the input stream to original\n");
-                    return EXIT_FAILURE;
+                    status = EXIT_FAILURE;
+                    break;
                 } // end if
                 
                 // close the pipe
-                if (close(pipe_fd[0]) == -1) {
+                if (close(input_pipe_fd) == -1) {
                     perror("Cannot close the input pipe\n");
                     // ignore the error
-                    return (EXIT_FAILURE);
+                    status = EXIT_FAILURE;
+                    break;
                 } // end if
 
                 hasPipeBefore = 0;
@@ -666,17 +686,29 @@ int execute() {
                 // reset the pipe stdout
                 if (dup2(stdout_cp, STDOUT_FILENO) == -1) {
                     perror("Something is wrong when setting the output stream to original\n");
-                    return EXIT_FAILURE;
+                    status = EXIT_FAILURE;
+                    break;
                 } // end if
 
                 // close the pipe
-                if (close(pipe_fd[1]) == -1) {
+                if (close(output_pipe_fd) == -1) {
                     perror("Cannot close the output pipe\n");
                     // ignore the error
-                    return (EXIT_FAILURE);
+                    status = EXIT_FAILURE;
+                    break;
                 } // end if
 
-                pipe_fd[1] == -1;
+                // swap turn
+                if (turn == 0) {
+                    output_pipe_fd = e_pipe_fd[1];
+                    input_pipe_fd = pipe_fd[0];
+                } else {
+                    output_pipe_fd = pipe_fd[1];
+                    input_pipe_fd = e_pipe_fd[0];
+                } // end if
+
+                // switch the turn
+                turn = turn == 0;
 
                 if (DEBUG) 
                     perror("released output pipe");
@@ -689,7 +721,13 @@ int execute() {
         } // end if
     } // end for end
 
-    return EXIT_SUCCESS;
+    // close the pipes
+    close(pipe_fd[0]);
+    close(pipe_fd[1]);
+    close(e_pipe_fd[0]);
+    close(e_pipe_fd[1]);
+
+    return status;
 } // end execute
 
 /*

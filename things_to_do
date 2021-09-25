@@ -8,3 +8,14 @@ If I see multiple of >, execute the right most one first.
 
 If I see < in a section, loading it as input first
 If I see multiple of >, execute the right most one first. 
+
+When do we need an extra pipe:
+1) proc1 |b proc2
+|b will need to close output for input in proc2 to give EOF
+
+2) proc |a proc2 |b proc3
+|a will need to close output for input in proc2 to give EOF
+proc2 will taken input from |a and output in |b
+|a will need to close input and then a new pipe must be as |a (if needed)
+|b will need to close output for input in proc3 to give EOF
+|b will need to close input to end the program. 

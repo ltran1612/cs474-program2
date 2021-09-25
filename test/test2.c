@@ -3,8 +3,9 @@
 #include <unistd.h>
 
 int main(int argc, char * argv[]) {
-	perror("program1\n");
+	perror("program2");
 	char s[100];
-	printf("value\n");
+	gets(s);
+	printf("%s\n", s);
 //	exit(EXIT_FAILURE);
 } // end main
