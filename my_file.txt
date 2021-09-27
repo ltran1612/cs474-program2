@@ -1,0 +1,20 @@
+total 232
+-rw-r--r--   1 longtran  staff    421 Sep 26 23:20 CONSTANTS.h
+-rw-r--r--   1 longtran  staff    319 Sep 26 23:04 Makefile
+-rw-r--r--   1 longtran  staff    135 Sep 24 22:10 a
+-rw-r--r--   1 longtran  staff     12 Sep 24 13:07 b
+-rw-r--r--   1 longtran  staff     12 Sep 24 16:29 c
+-rw-r--r--   1 longtran  staff      0 Sep 26 23:34 my_file.txt
+drwxr-x--x   2 longtran  staff     64 Sep 26 23:32 my_folder
+-rwxr-xr-x   1 longtran  staff  27012 Sep 26 23:26 program2
+-rw-r--r--   1 longtran  staff  32281 Sep 26 23:26 program2.c
+-rw-r--r--   1 longtran  staff  16096 Sep 26 23:26 program2.o
+drwxr-xr-x   5 longtran  staff    160 Sep 23 14:09 references
+drwxr-xr-x  18 longtran  staff    576 Sep 24 23:56 test
+drwxr-x--x   2 longtran  staff     64 Sep 24 15:34 test2
+drwxr-x--x   2 longtran  staff     64 Sep 24 15:37 test3
+-rw-r--r--   1 longtran  staff     32 Sep 26 23:08 test_file
+-rw-r--r--   1 longtran  staff    794 Sep 24 23:30 things_to_do
+-rw-r--r--   1 longtran  staff   1427 Sep 26 23:06 utilities.c
+-rw-r--r--   1 longtran  staff    312 Sep 26 23:05 utilities.h
+-rw-r--r--   1 longtran  staff    976 Sep 26 23:08 utilities.o
